@@ -1,65 +1,81 @@
+import os
 import pandas as pd
 import numpy as np
-import talib
 
-def calculate_technical_indicators(csv_path):
-    """
-    Calculate technical indicators for a stock price dataset.
+def calculate_rsi(data, periods=14):
+    delta = data.diff()
+    up = delta.clip(lower=0)
+    down = -1 * delta.clip(upper=0)
+    ma_up = up.ewm(com=periods-1, adjust=True, min_periods=periods).mean()
+    ma_down = down.ewm(com=periods-1, adjust=True, min_periods=periods).mean()
+    rsi = 100.0 - (100.0 / (1.0 + ma_up / ma_down))
+    return rsi
+
+def calculate_ema(data, period):
+    return data.ewm(span=period, adjust=False).mean()
+
+def calculate_sma(data, period):
+    return data.rolling(window=period).mean()
+
+def calculate_macd(data, fast_period=12, slow_period=26, signal_period=9):
+    fast_ema = calculate_ema(data, fast_period)
+    slow_ema = calculate_ema(data, slow_period)
+    macd = fast_ema - slow_ema
+    signal_line = calculate_ema(macd, signal_period)
+    histogram = macd - signal_line
+    return macd
+
+def process_stock_data(df):
+    # Clean Volume column if it has commas
+    if 'Volume' in df.columns:
+        df['Volume'] = df['Volume'].str.replace(',', '').astype(float)
     
-    Parameters:
-    csv_path (str): Path to the input CSV file
+    # Calculate Technical Indicators
+    df['EMA_9'] = calculate_ema(df['Close'], 9)
+    df['EMA_20'] = calculate_ema(df['Close'], 20)
+    df['EMA_50'] = calculate_ema(df['Close'], 50)
     
-    Returns:
-    pandas.DataFrame: DataFrame with added technical indicators
-    """
-    # Read the CSV file
-    df = pd.read_csv(csv_path, parse_dates=['Date'])
+    df['SMA_9'] = calculate_sma(df['Close'], 9)
+    df['SMA_20'] = calculate_sma(df['Close'], 20)
+    df['SMA_50'] = calculate_sma(df['Close'], 50)
     
-    # Clean Volume column (remove commas)
-    df['Volume'] = df['Volume'].str.replace(',', '').astype(float)
-    
-    # Calculate Exponential Moving Averages (EMA)
-    df['EMA_9'] = talib.EMA(df['Close'], timeperiod=9)
-    df['EMA_20'] = talib.EMA(df['Close'], timeperiod=20)
-    df['EMA_50'] = talib.EMA(df['Close'], timeperiod=50)
-    
-    # Calculate Simple Moving Averages (SMA)
-    df['SMA_9'] = talib.SMA(df['Close'], timeperiod=9)
-    df['SMA_20'] = talib.SMA(df['Close'], timeperiod=20)
-    df['SMA_50'] = talib.SMA(df['Close'], timeperiod=50)
-    
-    # Calculate Relative Strength Index (RSI)
-    df['RSI'] = talib.RSI(df['Close'], timeperiod=14)
-    
-    # Calculate MACD
-    macd, signal, hist = talib.MACD(df['Close'], fastperiod=12, slowperiod=26, signalperiod=9)
-    df['MACD'] = macd
-    df['MACD_Signal'] = signal
-    df['MACD_Histogram'] = hist
+    df['RSI'] = calculate_rsi(df['Close'])
+    df['MACD'] = calculate_macd(df['Close'])
     
     return df
 
-def save_processed_data(df, output_path):
+def process_all_files(input_folder, output_folder):
     """
-    Save the processed DataFrame to a new CSV file.
+    Process all CSV files in a folder and save with technical indicators.
     
     Parameters:
-    df (pandas.DataFrame): DataFrame with technical indicators
-    output_path (str): Path to save the output CSV file
+    input_folder (str): Path to input folder containing CSV files.
+    output_folder (str): Path to save processed CSV files.
     """
-    df.to_csv(output_path, index=False)
-    print(f"Processed data saved to {output_path}")
+    # Create output folder if it doesn't exist
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+    
+    # Loop through all files in the folder
+    for filename in os.listdir(input_folder):
+        if filename.endswith('.csv'):
+            input_path = os.path.join(input_folder, filename)
+            output_path = os.path.join(output_folder, f"{filename.split('.')[0]}_with_indicators.csv")
+            
+            # Process the data
+            print(f"Processing {filename}...")
+            df = pd.read_csv(input_path, parse_dates=['Date'])
+            processed_df = process_stock_data(df)
+            
+            # Save processed data
+            processed_df.to_csv(output_path, index=False)
+            print(f"Saved: {output_path}")
 
 # Example usage
 if __name__ == "__main__":
-    input_path = "data\Adani Enterprises.csv"  # Replace with your actual input file path
-    output_path = "data\Adani Enterprises_with_indicators.csv"  # Replace with your desired output file path
+    input_folder = "data"  # Folder containing input CSV files
+    output_folder = "processed_data"  # Folder to save output files
     
-    # Process the data
-    processed_df = calculate_technical_indicators(input_path)
-    
-    # Save the processed data
-    save_processed_data(processed_df, output_path)
-    
-    # Display the first few rows to verify
-    print(processed_df.head())
+    # Process all files
+    process_all_files(input_folder, output_folder)
+    print("All files have been processed and saved.")
